@@ -10,11 +10,11 @@ from langchain_core.runnables import chain
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.pydantic_v1 import BaseModel, Field
 from typing import Literal
-from api_key import OPENAI_API_KEY
+# from api_key import OPENAI_API_KEY
 
 # Setup OpenAI API key
-# os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+# os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 def load_image(inputs: dict) -> dict:
     """Load image from file and encode it as base64."""
