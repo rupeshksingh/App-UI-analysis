@@ -168,7 +168,7 @@ class ImageInformation(BaseModel):
 
 @chain
 def image_model(inputs: dict) -> str | list[str] | dict:
-    model = ChatOpenAI(temperature=0, model="gpt-4o", max_tokens=1024, api_key=OPENAI_API_KEY)
+    model = ChatOpenAI(temperature=0, model="gpt-4o", max_tokens=1024)
     msg = model.invoke(
         [HumanMessage(
             content=[
