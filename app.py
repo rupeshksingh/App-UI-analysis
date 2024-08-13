@@ -1,5 +1,6 @@
 import streamlit as st
 import cv2
+import os
 import base64
 import hashlib
 from langchain.chains import TransformChain
