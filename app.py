@@ -207,7 +207,7 @@ def get_image_informations(image1_path: str, image2_path: str, cache: ImageResul
 
     Think step by step before answering and analyze both UI images using your knowledge of UI and see what both images describe and what are the differences. Then answer.
     Take help from the 3rd and 4th image to answer. The 3rd image is the pixel-wise difference of the UI images and the 4th image is the heatmap of the difference image.
-    Note : There may be case when a small pop up appears in the App UI image, but that does not mean any change, Also some times only the background image changes dynamically but no change in content of that page. Keep all this in mind.
+    Note : There may be case when an ad appears in the App UI image, but that does not mean any change, Also some times only the background image changes dynamically but no change in content of that page. Use you knowledge to differentiate between ads, notifications, dynamic background change and actual action change.
     """
 
     return cache.get_result(
