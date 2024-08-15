@@ -69,10 +69,6 @@ class ImageResultCache:
         img1 = cv2.imdecode(np.frombuffer(base64.b64decode(img1_base64), np.uint8), cv2.IMREAD_COLOR)
         img2 = cv2.imdecode(np.frombuffer(base64.b64decode(img2_base64), np.uint8), cv2.IMREAD_COLOR)
 
-        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-        gray2=cv2.resize(gray2,gray1.shape)
-
         score, _ = ssim(gray1, gray2, full=True)
         return score >= threshold
 
