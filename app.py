@@ -71,8 +71,8 @@ class ImageResultCache:
 
         gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-        print(gray1.shape)
-        print(gray2.shape)
+        gray2=cv2.resize(gray2,gray1.shape)
+
         score, _ = ssim(gray1, gray2, full=True)
         return score >= threshold
 
