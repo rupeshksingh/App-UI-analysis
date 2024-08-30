@@ -5,8 +5,112 @@ import numpy as np
 import cv2
 import logging
 from skimage.metrics import structural_similarity as ssim
+from langchain.chains import TransformChain
+from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
+from langchain import globals
+from langchain_core.runnables import chain
+import base64
+from langchain_core.pydantic_v1 import BaseModel, Field
+from typing import Literal
+from langchain_core.output_parsers import JsonOutputParser
 
 logging.basicConfig(level=logging.INFO)
+os.environ["OPENAI_API_KEY"] = st.secrets['OPENAI_API_KEY']
+
+def load_image(inputs: dict) -> dict:
+    """Load image from file and encode it as base64."""
+    image1_path = inputs["image1_path"]
+    image2_path = inputs["image2_path"]
+
+    def encode_image(image_path):
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
+
+    def pixelwise_color_difference(img1, img2):
+        # Ensure the images are of the same size
+        if img1.shape != img2.shape:
+            raise ValueError("Images must have the same dimensions")
+
+        # Compute the absolute difference between the two images
+        diff = cv2.absdiff(img1, img2)
+        return diff
+
+    def generate_heatmap(diff):
+        # Convert the combined difference to a colormap for better visualization
+        heatmap = cv2.applyColorMap(diff, cv2.COLORMAP_JET)
+        return heatmap
+
+    image1_base64 = encode_image(image1_path)
+    image2_base64 = encode_image(image2_path)
+
+    img1 = cv2.imread(image1_path)
+    img2 = cv2.imread(image2_path)
+
+    diff = pixelwise_color_difference(img1, img2)
+    heatmap = generate_heatmap(diff)
+
+    _, heatmap_encoded = cv2.imencode('.png', heatmap)
+
+    heatmap_base64 = base64.b64encode(heatmap_encoded).decode('utf-8')
+
+    return {
+        "image1": image1_base64,
+        "image2": image2_base64,
+        "heatmap_image": heatmap_base64
+    }
+
+load_image_chain = TransformChain(
+    input_variables=["image1_path", "image2_path"],
+    output_variables=["image1", "image2", "heatmap_image"],
+    transform=load_image
+)
+
+class ImageInformation(BaseModel):
+    """Information about an image."""
+    action: Literal["tap", "scroll", "type"] = Field(description="Step that will lead to a change in UI of App from image 1 to image 2")
+    item: str = Field(description="which item on the app UI of image 1 the action is taken to change it to image 2: if tap is the action then the element name, if type is the action then what is typed and if scroll then return empty string")
+
+# Set verbose
+globals.set_debug(True)
+
+@chain
+def image_model(inputs: dict) -> str | list[str] | dict:
+ """Invoke model with image and prompt."""
+ model = ChatOpenAI(temperature=0, model="gpt-4o", max_tokens=1024)
+ msg = model.invoke(
+             [HumanMessage(
+             content=[
+             {"type": "text", "text": inputs["prompt"]},
+             {"type": "text", "text": parser.get_format_instructions()},
+             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{inputs['image1']}"}},
+             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{inputs['image2']}"}},
+             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{inputs['diff_image']}"}},
+             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{inputs['heatmap_image']}"}},
+])]
+             )
+ return msg.content
+
+parser = JsonOutputParser(pydantic_object=ImageInformation)
+def get_image_informations(image1_path: str, image2_path: str) -> dict:
+   vision_prompt = """
+   Act as a UI/UX expert and a software testing engineer.
+   Given the 2 App UI image, one before step and one after the step provide the following information:
+   Also you are given 1 additional processed image of the first 2 UI image. So the 3rd image is the heatmap of the difference image.
+   Analyze the following first two UI states and identify the single action that transforms UI 1 into UI 2.
+   The action can be one of the following: tap, scroll, or type.
+
+    1. Tap: This action involves interacting with a clickable item.
+    2. Scroll: This action involves scrolling, resulting in misalignment of elements in UI 2 compared to UI 1.
+    3. Type: This action involves typing into a text box or input area.
+
+    Think step by step before answering and use your knowledge of UI to answer.
+    Take help from the 3rd image to answer. The 3rd image is the heatmap of the difference image. 
+    """
+   vision_chain = load_image_chain | image_model | parser
+   return vision_chain.invoke({'image1_path': f'{image1_path}',
+                               'image2_path': f'{image2_path}',
+                               'prompt': vision_prompt})
 
 # Function to extract hierarchy details from an XML tree
 def extract_hierarchy_details(tree):
@@ -167,6 +271,9 @@ def compare_components(cropped_images1, cropped_images2, ssim_threshold, hist_th
     same_count = 0
     different_count = 0
 
+    # Store the similar component pairs for display
+    similar_components = []
+
     if num_components1 <= num_components2:
         smaller_components = cropped_images1
         larger_components = cropped_images2
@@ -184,6 +291,9 @@ def compare_components(cropped_images1, cropped_images2, ssim_threshold, hist_th
             img2, coords2 = larger_components[j]
 
             if compare_images(img1, img2, ssim_threshold, hist_threshold):
+                # Store the similar component images
+                similar_components.append((img1, img2))
+
                 x_match = coords1[0] == coords2[0] and coords1[2] == coords2[2]
                 y_match = coords1[1] == coords2[1] and coords1[3] == coords2[3]
 
@@ -207,7 +317,8 @@ def compare_components(cropped_images1, cropped_images2, ssim_threshold, hist_th
         "Different": different_count,
     }
     dominant_category = max(categories, key=categories.get)
-    return dominant_category, categories
+
+    return dominant_category, categories, similar_components
 
 # Main processing function
 def main():
@@ -236,6 +347,9 @@ def main():
                     st.success("XML hierarchies match.")
                 else:
                     st.warning("XML hierarchies do not match.")
+                    llm_result = get_image_informations(image_file1, image_file2)
+                    st.write(f"Action: {llm_result.get('action')}")
+                    st.write(f"Item: {llm_result.get('item')}")
                     return
 
                 # Step 3: Check overall image similarity
@@ -258,9 +372,20 @@ def main():
 
                 # Step 5: Compare components
                 st.header("Component-wise Image Comparison")
-                dominant_category, categories = compare_components(cropped_images_with_coords1, cropped_images_with_coords2, ssim_threshold, hist_threshold)
+                dominant_category, categories, similar_components = compare_components(cropped_images_with_coords1, cropped_images_with_coords2, ssim_threshold, hist_threshold)
                 st.write(f"Dominant category: {dominant_category}")
                 st.write(categories)
+                st.header("Similar Image Components")
+                if similar_components:
+                    for idx, (img1, img2) in enumerate(similar_components):
+                        st.subheader(f"Component Pair {idx + 1}")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(img1, caption="Component from Image 1")
+                        with col2:
+                            st.image(img2, caption="Component from Image 2")
+                else:
+                    st.info("No similar components found.")
 
             except Exception as e:
                 st.error(f"An error occurred: {e}")
